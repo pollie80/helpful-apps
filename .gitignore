@@ -1,0 +1,14 @@
+# Build output
+bin/
+obj/
+__pycache__/
+*.pyc
+
+# Local state and secrets - never commit these
+call-status-config.json
+call-status-position.json
+
+# Editor / tooling
+.claude/
+*.bak
+*.user
