@@ -15,7 +15,9 @@ One folder per platform, one folder per app inside it. Every app has its own REA
 
 ## apple
 
-Empty for now. See [apple/README.md](apple/README.md).
+| App | What it is for |
+| --- | --- |
+| [claude-usage-bar](apple/claude-usage-bar) | Your Claude subscription usage in the macOS menu bar as a live percentage. Reads the real numbers from the same endpoint Claude Code's `/usage` panel uses, rather than estimating from local logs, and lets you pick which limit window the number tracks. |
 
 ## Conventions
 
