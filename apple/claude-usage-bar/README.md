@@ -52,11 +52,26 @@ fallback for if `limits` ever stops being sent.
 ## Credentials
 
 The OAuth token is read from the login keychain - service `Claude Code-credentials`, the same
-item Claude Code itself writes. When it has expired, the app trades the stored refresh token at
-`https://console.anthropic.com/v1/oauth/token` and writes the rotated pair back to the keychain,
-which is exactly what Claude Code does, so the two stay in step.
+item Claude Code itself writes. **The app only ever reads it.** It never writes to that item and
+never refreshes the token, because both turn out to break Claude Code:
 
-Nothing is sent anywhere except those two Anthropic endpoints, and no local transcripts are read.
+- Writing to a keychain item from a process that is not on the item's trusted list makes macOS
+  reset the item's ACL. That locks Claude Code out of its own credentials, and you get an endless
+  stream of "security wants to access key Claude Code-credentials" password prompts that keep
+  coming even after you quit everything.
+- Refresh tokens rotate. Redeeming the stored refresh token invalidates the copy Claude Code is
+  holding, so a well-meaning refresh here can sign you out of Claude Code.
+
+When the stored token has expired the app simply says so and waits - use Claude Code once, and
+the next poll picks up the freshly refreshed token.
+
+If you have already hit the prompt storm, this repairs it:
+
+```bash
+security set-generic-password-partition-list -S apple-tool:,apple: -s "Claude Code-credentials" -a "$USER"
+```
+
+Nothing is sent anywhere except the one Anthropic endpoint, and no local transcripts are read.
 There is no config file and no token of its own to leak.
 
 ## Build and install

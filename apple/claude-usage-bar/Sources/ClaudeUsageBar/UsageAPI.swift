@@ -212,6 +212,7 @@ struct UsageSnapshot {
 
 enum UsageError: LocalizedError {
     case notAuthenticated(String)
+    case tokenExpired
     case http(Int, String)
     case decode(String)
     case noWindows
@@ -220,6 +221,8 @@ enum UsageError: LocalizedError {
         switch self {
         case .notAuthenticated(let detail):
             return "Not signed in: \(detail)"
+        case .tokenExpired:
+            return "Waiting for Claude Code to refresh its token - use Claude Code once and this updates on the next poll."
         case .http(let code, let body):
             return "Usage request failed (HTTP \(code)): \(body.prefix(200))"
         case .decode(let detail):
@@ -234,20 +237,16 @@ actor UsageClient {
     static let shared = UsageClient()
 
     private static let usageURL = URL(string: "https://api.anthropic.com/api/oauth/usage?at_wall=1&skip_spend=1")!
-    private static let tokenURL = URL(string: "https://console.anthropic.com/v1/oauth/token")!
-    /// Claude Code's public OAuth client id.
-    private static let clientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
     private static let betaHeader = "oauth-2025-04-20"
 
     func fetch() async throws -> UsageSnapshot {
-        var token = try await validAccessToken()
-        var (status, data) = try await request(token: token)
+        let token = try readAccessToken()
+        let (status, data) = try await request(token: token)
 
-        // The stored token can be revoked or rotated out from under us; one
-        // forced refresh covers that before we give up.
+        // Never refresh: that would rotate the token out from under Claude Code.
+        // An expired token resolves itself the next time Claude Code is used.
         if status == 401 {
-            token = try await forceRefresh()
-            (status, data) = try await request(token: token)
+            throw UsageError.tokenExpired
         }
 
         guard status == 200 else {
@@ -284,9 +283,9 @@ actor UsageClient {
 
     // MARK: Token handling
 
-    /// The stored token, refreshed first when it has expired (or is about to),
-    /// so the common case doesn't burn a round-trip on a known-dead token.
-    private func validAccessToken() async throws -> String {
+    /// Read the stored token. This app never refreshes and never writes - see
+    /// the note in Keychain.swift for why that matters.
+    private func readAccessToken() throws -> String {
         let creds: OAuthCredentials
         do {
             creds = try Keychain.read()
@@ -297,64 +296,8 @@ actor UsageClient {
         let bundle = creds.claudeAiOauth
         // A token expiring within the next minute counts as expired.
         let expired = bundle.expiresAt.map { $0 / 1000 <= Date().timeIntervalSince1970 + 60 } ?? false
-        if expired, bundle.refreshToken?.isEmpty == false {
-            return try await forceRefresh()
-        }
+        if expired { throw UsageError.tokenExpired }
         return bundle.accessToken
-    }
-
-    /// Exchange the refresh token for a new pair and persist it, exactly as
-    /// Claude Code does, so the two stay in sync.
-    private func forceRefresh() async throws -> String {
-        let creds: OAuthCredentials
-        do {
-            creds = try Keychain.read()
-        } catch {
-            throw UsageError.notAuthenticated(error.localizedDescription)
-        }
-        guard let refreshToken = creds.claudeAiOauth.refreshToken, !refreshToken.isEmpty else {
-            throw UsageError.notAuthenticated("no refresh token stored — run `claude` to sign in again")
-        }
-
-        var req = URLRequest(url: Self.tokenURL)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: [
-            "grant_type": "refresh_token",
-            "refresh_token": refreshToken,
-            "client_id": Self.clientID,
-        ])
-        req.timeoutInterval = 20
-
-        let (data, response) = try await URLSession.shared.data(for: req)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard status == 200 else {
-            throw UsageError.notAuthenticated(
-                "token refresh failed (HTTP \(status)) — run `claude` to sign in again")
-        }
-
-        struct TokenResponse: Decodable {
-            var accessToken: String
-            var refreshToken: String?
-            var expiresIn: Double?
-            enum CodingKeys: String, CodingKey {
-                case accessToken = "access_token"
-                case refreshToken = "refresh_token"
-                case expiresIn = "expires_in"
-            }
-        }
-        let tokens: TokenResponse
-        do {
-            tokens = try JSONDecoder().decode(TokenResponse.self, from: data)
-        } catch {
-            throw UsageError.decode("token response: \(error)")
-        }
-
-        let expiresAt = tokens.expiresIn.map { (Date().timeIntervalSince1970 + $0) * 1000 }
-        try? Keychain.update(accessToken: tokens.accessToken,
-                             refreshToken: tokens.refreshToken,
-                             expiresAt: expiresAt)
-        return tokens.accessToken
     }
 }
 

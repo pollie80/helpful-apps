@@ -18,7 +18,6 @@ enum KeychainError: LocalizedError {
     case notFound
     case unreadable(OSStatus)
     case malformed(String)
-    case writeFailed(OSStatus)
 
     var errorDescription: String? {
         switch self {
@@ -29,9 +28,6 @@ enum KeychainError: LocalizedError {
             return "Keychain read denied: \(msg)"
         case .malformed(let detail):
             return "Credential blob not in the expected shape: \(detail)"
-        case .writeFailed(let status):
-            let msg = SecCopyErrorMessageString(status, nil) as String? ?? "status \(status)"
-            return "Could not write refreshed token back to the keychain: \(msg)"
         }
     }
 }
@@ -72,20 +68,22 @@ struct Keychain {
         }
     }
 
-    /// Persist a rotated token pair, preserving every other field in the blob.
-    static func update(accessToken: String, refreshToken: String?, expiresAt: Double?) throws {
-        var creds = try read()
-        creds.claudeAiOauth.accessToken = accessToken
-        if let refreshToken { creds.claudeAiOauth.refreshToken = refreshToken }
-        if let expiresAt { creds.claudeAiOauth.expiresAt = expiresAt }
-
-        let body = try JSONEncoder().encode(creds)
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
-        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: body] as CFDictionary)
-        guard status == errSecSuccess else { throw KeychainError.writeFailed(status) }
-    }
+    // Deliberately read-only. Do not add a write path here.
+    //
+    // This item belongs to Claude Code, and touching it causes two distinct
+    // kinds of damage:
+    //
+    // 1. Writing to a keychain item from a process that isn't on its trusted
+    //    list makes macOS reset that item's ACL, which locks Claude Code out of
+    //    its own credentials and produces an unstoppable stream of keychain
+    //    password prompts.
+    //
+    // 2. Refresh tokens rotate. Redeeming the stored refresh token invalidates
+    //    the copy Claude Code holds, so refreshing here - even if the result
+    //    were written back perfectly - races Claude Code and can sign the user
+    //    out of it.
+    //
+    // So this app only ever reads. When the stored token has expired it waits
+    // for Claude Code to refresh it in the course of normal use, and shows a
+    // short "waiting" state until then.
 }
