@@ -1,9 +1,34 @@
 ---
 name: game-network-priority
-description: Diagnose and fix packet loss, lag spikes or rubber-banding in a competitive game (Valorant, CS2, Apex, League, Overwatch) that appears while something else is downloading - Steam, Windows Update, Epic, a browser. Use when someone reports in-game packet loss during a download, asks to "prioritise" a game's traffic, asks whether they can download and play at the same time, or asks about QoS for gaming. Covers bufferbloat diagnosis, why Windows QoS policies cannot fix inbound traffic, and the fixes that actually work.
+description: Diagnose and fix packet loss, lag spikes or rubber-banding in a competitive game (Valorant, CS2, Apex, League, Overwatch) that appears while something else is downloading - Steam, Windows Update, Epic, a browser. Use when someone reports in-game packet loss during a download, asks to "prioritise" a game's traffic, asks whether they can download and play at the same time, or asks about QoS for gaming. Covers bufferbloat diagnosis, why Windows QoS policies cannot fix inbound traffic, and the fixes that actually work. Network only - for hitching, frame drops or stutter where the connection is idle, this is the wrong skill and the triage section says where to go instead.
 ---
 
 # Game network priority
+
+## Scope: is it actually the network?
+
+This skill covers **one** failure mode - packets arriving too late because a queue is full. It
+does not cover CPU, GPU, RAM, frame pacing or shader stutter. Check which one you have before
+spending time here, because the two feel identical from the player's seat: both read as "the
+game froze" or "I died behind cover".
+
+Thirty-second triage:
+
+| Symptom | Likely cause |
+| --- | --- |
+| Frame rate stays high, but you rubber-band, teleport, or trade kills you should have won | **Network** - continue with this skill |
+| The picture visibly hitches or drops frames while audio keeps running | **Frametime stutter** - wrong skill, see below |
+| Both at once | Do the network side first; it is cheaper to rule out |
+
+The deciding measurement is the one at the top of the next section. **If inbound is a few Mbps
+while the game misbehaves, the connection is idle and the network is not your problem** - stop
+here.
+
+For the hardware side use [stutter-doctor](../../windows/stutter-doctor), which captures real
+per-frame CPU and GPU times via PresentMon, DPC and interrupt time, per-core load, effective
+clock, hard page faults, and GPU clocks with the driver's throttle-reason bitmask. That tells
+you *which* component stalled and why. Guessing at it from a network skill does not.
+
 
 ## The one idea that matters
 
@@ -120,7 +145,9 @@ DSCP marking also only matters if every hop honours it. Consumer ISPs generally 
 
 **Raising game process priority does not fix this either.** It is a CPU scheduling control and
 has no effect on a network queue. On a machine that is not CPU-bound it changes nothing
-measurable. Harmless, but do not present it as the fix.
+measurable. Harmless, but do not present it as the fix - and if the machine genuinely is
+CPU-bound, that is a frametime problem for stutter-doctor, not something to solve by nudging
+priority classes.
 
 ## Reporting back
 
