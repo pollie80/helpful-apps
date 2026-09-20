@@ -11,7 +11,6 @@ One folder per platform, one folder per app inside it. Every app has its own REA
 | --- | --- |
 | [call-status](windows/call-status) | An always-on-top badge showing whether your mic or camera is live, so people can see when you are in a call. Detects device mute and Discord's in-app mute too. |
 | [ps4-controller-battery-tray](windows/ps4-controller-battery-tray) | The DualShock 4's battery percentage in the system tray, which Windows otherwise will not show you. Reads the pad directly over HID. |
-| [stutter-doctor](windows/stutter-doctor) | Works out *why* a game hitches, instead of leaving you guessing. Records what the machine was doing around each freeze and names the cause. |
 
 ## apple
 
@@ -26,6 +25,7 @@ Procedures rather than programs - see [skills/](skills).
 | Skill | What it is for |
 | --- | --- |
 | [game-network-priority](skills/game-network-priority) | Why a competitive game loses packets while something is downloading, and the fixes that actually work. |
+| [windows-game-telemetry](skills/windows-game-telemetry) | How to measure what a Windows game is really doing - frametimes, CPU/GPU attribution, DPC time - from outside the process, and the traps that produce confident wrong answers. |
 
 ## Conventions
 

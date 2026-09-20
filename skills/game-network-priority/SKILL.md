@@ -24,10 +24,11 @@ The deciding measurement is the one at the top of the next section. **If inbound
 while the game misbehaves, the connection is idle and the network is not your problem** - stop
 here.
 
-For the hardware side use [stutter-doctor](../../windows/stutter-doctor), which captures real
-per-frame CPU and GPU times via PresentMon, DPC and interrupt time, per-core load, effective
-clock, hard page faults, and GPU clocks with the driver's throttle-reason bitmask. That tells
-you *which* component stalled and why. Guessing at it from a network skill does not.
+For the hardware side, measure rather than guess: real per-frame CPU and GPU times via
+PresentMon, DPC and interrupt time, per-core load, and hard page faults will tell you *which*
+component stalled. [windows-game-telemetry](../windows-game-telemetry) covers how to read all
+of that from outside the game, and the traps that otherwise produce confident wrong answers.
+Guessing at it from a network skill does not work.
 
 
 ## The one idea that matters
@@ -146,8 +147,8 @@ DSCP marking also only matters if every hop honours it. Consumer ISPs generally 
 **Raising game process priority does not fix this either.** It is a CPU scheduling control and
 has no effect on a network queue. On a machine that is not CPU-bound it changes nothing
 measurable. Harmless, but do not present it as the fix - and if the machine genuinely is
-CPU-bound, that is a frametime problem for stutter-doctor, not something to solve by nudging
-priority classes.
+CPU-bound, that is a frametime problem for windows-game-telemetry to measure, not something to
+solve by nudging priority classes.
 
 ## Reporting back
 
