@@ -19,6 +19,14 @@ One folder per platform, one folder per app inside it. Every app has its own REA
 | --- | --- |
 | [claude-usage-bar](apple/claude-usage-bar) | Your Claude subscription usage in the macOS menu bar as a live percentage. Reads the real numbers from the same endpoint Claude Code's `/usage` panel uses, rather than estimating from local logs, and lets you pick which limit window the number tracks. |
 
+## skills
+
+Procedures rather than programs - see [skills/](skills).
+
+| Skill | What it is for |
+| --- | --- |
+| [game-network-priority](skills/game-network-priority) | Why a competitive game loses packets while something is downloading, and the fixes that actually work. |
+
 ## Conventions
 
 - Anything holding a credential is gitignored and ships as a `.example` file instead.
