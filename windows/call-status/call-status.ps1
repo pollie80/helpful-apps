@@ -1,6 +1,11 @@
 # Call Status popup - always-on-top indicator for mic/camera use.
 # Detection:
-#  - Mic/camera in use: CapabilityAccessManager ConsentStore registry (LastUsedTimeStop = 0)
+#  - Mic in use: Core Audio capture sessions (per process), unioned with the
+#    CapabilityAccessManager ConsentStore registry. The registry alone is not enough: it keys
+#    entries by exe path, so every Discord auto-update lands on a path with no entry, and the
+#    store can stop updating altogether until a reboot. Sessions are keyed by PID, so neither
+#    hurts them.
+#  - Camera in use: ConsentStore registry only - there is no capture-session equivalent.
 #  - Device-level mic mute: Core Audio (default communications capture device)
 #  - Discord in-app mute/deafen: Discord local RPC (requires one-time discord-setup.ps1)
 # States: green = free, red = in a call (hot mic), amber = in a call but muted,
@@ -23,13 +28,50 @@ class MMDeviceEnumeratorComObject { }
 
 [Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 interface IMMDeviceEnumerator {
-    int NotImpl1();
+    int EnumAudioEndpoints(int dataFlow, int stateMask, out IMMDeviceCollection ppDevices);
     int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice ppDevice);
+}
+
+[Guid("0BD7A1BE-7A1A-44DB-8397-CC5392387B5E"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IMMDeviceCollection {
+    int GetCount(out uint pcDevices);
+    int Item(uint nDevice, out IMMDevice ppDevice);
 }
 
 [Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 interface IMMDevice {
     int Activate(ref Guid iid, int dwClsCtx, IntPtr pActivationParams, [MarshalAs(UnmanagedType.IUnknown)] out object ppInterface);
+}
+
+// IAudioSessionManager2's first two methods are unused here, but they still occupy vtable slots.
+[Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IAudioSessionManager2 {
+    int GetAudioSessionControl(IntPtr a, int b, out IntPtr c);
+    int GetSimpleAudioVolume(IntPtr a, int b, out IntPtr c);
+    int GetSessionEnumerator(out IAudioSessionEnumerator ppSessionEnum);
+}
+
+[Guid("E2F5BB11-0570-40CA-ACDD-3AA01277DEE8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IAudioSessionEnumerator {
+    int GetCount(out int SessionCount);
+    int GetSession(int SessionCount, out IAudioSessionControl2 Session);
+}
+
+[Guid("BFB7FF88-7239-4FC9-8FA2-07C950BE9C6D"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IAudioSessionControl2 {
+    int GetState(out int pRetVal);
+    int GetDisplayName([MarshalAs(UnmanagedType.LPWStr)] out string pRetVal);
+    int SetDisplayName([MarshalAs(UnmanagedType.LPWStr)] string Value, ref Guid EventContext);
+    int GetIconPath([MarshalAs(UnmanagedType.LPWStr)] out string pRetVal);
+    int SetIconPath([MarshalAs(UnmanagedType.LPWStr)] string Value, ref Guid EventContext);
+    int GetGroupingParam(out Guid pRetVal);
+    int SetGroupingParam(ref Guid Override, ref Guid EventContext);
+    int RegisterAudioSessionNotification(IntPtr NewNotifications);
+    int UnregisterAudioSessionNotification(IntPtr NewNotifications);
+    int GetSessionIdentifier([MarshalAs(UnmanagedType.LPWStr)] out string pRetVal);
+    int GetSessionInstanceIdentifier([MarshalAs(UnmanagedType.LPWStr)] out string pRetVal);
+    int GetProcessId(out uint pRetVal);
+    int IsSystemSoundsSession();
 }
 
 [Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -47,6 +89,44 @@ interface IAudioEndpointVolume {
     int GetChannelVolumeLevelScalar(uint channelNumber, out float level);
     int SetMute(bool mute, ref Guid eventContext);
     int GetMute(out bool mute);
+}
+
+public static class MicSessions {
+    // PIDs with a running capture stream, across every active capture device. Returns null if
+    // Core Audio is unreachable, so the caller can tell "nothing on the mic" from "could not ask".
+    public static uint[] GetActivePids() {
+        try {
+            var pids = new System.Collections.Generic.List<uint>();
+            var en = (IMMDeviceEnumerator)new MMDeviceEnumeratorComObject();
+            IMMDeviceCollection col;
+            // dataFlow 1 = eCapture, stateMask 1 = DEVICE_STATE_ACTIVE
+            Marshal.ThrowExceptionForHR(en.EnumAudioEndpoints(1, 1, out col));
+            uint n;
+            Marshal.ThrowExceptionForHR(col.GetCount(out n));
+            for (uint i = 0; i < n; i++) {
+                IMMDevice dev;
+                if (col.Item(i, out dev) != 0) continue;
+                object o;
+                var iid = typeof(IAudioSessionManager2).GUID;
+                if (dev.Activate(ref iid, 1, IntPtr.Zero, out o) != 0) continue;
+                IAudioSessionEnumerator se;
+                if (((IAudioSessionManager2)o).GetSessionEnumerator(out se) != 0) continue;
+                int cnt;
+                if (se.GetCount(out cnt) != 0) continue;
+                for (int s = 0; s < cnt; s++) {
+                    IAudioSessionControl2 ctl;
+                    if (se.GetSession(s, out ctl) != 0) continue;
+                    int state;
+                    // 0 = inactive, 1 = active (stream running), 2 = expired
+                    if (ctl.GetState(out state) != 0 || state != 1) continue;
+                    uint pid;
+                    if (ctl.GetProcessId(out pid) != 0 || pid == 0) continue;
+                    if (!pids.Contains(pid)) pids.Add(pid);
+                }
+            }
+            return pids.ToArray();
+        } catch { return null; }
+    }
 }
 
 public static class MicState {
@@ -79,9 +159,21 @@ $emoGame  = [char]::ConvertFromUtf32(0x1F3AE)   # video game controller
 $script:IgnoreApps = @('nvcontainer', 'nvbroadcast', 'nvidia broadcast', 'steelseriessonar',
                        'sonarhost', 'wavelink', 'voicemod', 'audiorepeater', 'rtkauduservice64')
 
+# Processes with a live capture stream, by friendly-ish exe name. This is the reliable half of
+# mic detection: PIDs survive Discord's auto-updates, and it does not depend on the consent store
+# still being written to.
+function Get-MicProcessNames {
+    $pids = [MicSessions]::GetActivePids()
+    if ($null -eq $pids) { return @() }
+    @($pids | ForEach-Object {
+        try { (Get-Process -Id $_ -ErrorAction Stop).ProcessName } catch { }
+    })
+}
+
 function Get-CapabilityAppsInUse {
     param([string]$Capability)   # 'microphone' or 'webcam'
     $inUse = @()
+    if ($Capability -eq 'microphone') { $inUse += Get-MicProcessNames }
     $base = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\$Capability"
 
     Get-ChildItem $base -ErrorAction SilentlyContinue |
