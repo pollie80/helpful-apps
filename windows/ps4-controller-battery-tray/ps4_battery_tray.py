@@ -5,8 +5,10 @@ system tray, polling the controller over HID (Bluetooth or USB).
 Run with pythonw.exe to avoid a console window.
 """
 
+import json
 import threading
 import time
+from pathlib import Path
 
 import hid
 import pystray
@@ -15,11 +17,21 @@ from PIL import Image, ImageDraw, ImageFont
 VID = 0x054C
 PIDS = (0x09CC, 0x05C4, 0x0BA0)  # DS4 v2, DS4 v1, Sony wireless adapter
 
-# Friendly names per controller serial (Bluetooth MAC); unknown serials
-# show the raw ID instead.
-CONTROLLER_NAMES = {
-    # "00:1F:E2:11:22:33": "[black] Primary",
-}
+CONFIG_PATH = Path(__file__).with_name("ds4-battery-config.json")
+
+
+def load_controller_names():
+    """Friendly names per controller serial (Bluetooth MAC) from the config
+    file next to this script. Unknown serials show the raw ID instead, and a
+    missing or unreadable file just means no names."""
+    try:
+        with open(CONFIG_PATH, encoding="utf-8") as f:
+            return json.load(f).get("controller_names", {})
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+CONTROLLER_NAMES = load_controller_names()
 POLL_SECONDS = 30
 FONT_PATH = r"C:\Windows\Fonts\segoeuib.ttf"  # Segoe UI Bold
 ICON_SIZE = 64
@@ -104,21 +116,40 @@ def draw_battery_symbol(draw, x, y, w, h, pct, charging, color):
         draw.polygon(bolt, fill=(255, 215, 60, 255), outline=(30, 30, 30, 255))
 
 
+def make_controller_icon(color):
+    """Gamepad silhouette shown while no controller is connected."""
+    s = 4  # draw 4x and downscale for smooth edges
+    big = Image.new("RGBA", (ICON_SIZE * s, ICON_SIZE * s), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(big)
+
+    def box(*v):
+        return [c * s for c in v]
+
+    draw.rounded_rectangle(box(6, 18, 58, 42), radius=10 * s, fill=color)
+    draw.ellipse(box(3, 26, 24, 58), fill=color)   # left grip
+    draw.ellipse(box(40, 26, 61, 58), fill=color)  # right grip
+    cut = (0, 0, 0, 0)  # punch the d-pad and buttons out of the body
+    draw.rectangle(box(16, 24, 20, 36), fill=cut)
+    draw.rectangle(box(12, 28, 24, 32), fill=cut)
+    for cx, cy in ((46, 24), (46, 36), (40, 30), (52, 30)):
+        draw.ellipse(box(cx - 2.5, cy - 2.5, cx + 2.5, cy + 2.5), fill=cut)
+    return big.resize((ICON_SIZE, ICON_SIZE), Image.LANCZOS)
+
+
 def make_icon_image(pct, charging):
+    if pct is None:
+        return make_controller_icon((140, 140, 140, 255))
     img = Image.new("RGBA", (ICON_SIZE, ICON_SIZE), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    if pct is None:
-        text, color = "-", (140, 140, 140, 255)
+    text = str(pct)
+    if charging:
+        color = (80, 220, 120, 255)   # green while charging
+    elif pct <= 15:
+        color = (235, 70, 70, 255)    # red
+    elif pct <= 30:
+        color = (240, 180, 50, 255)   # amber
     else:
-        text = str(pct)
-        if charging:
-            color = (80, 220, 120, 255)   # green while charging
-        elif pct <= 15:
-            color = (235, 70, 70, 255)    # red
-        elif pct <= 30:
-            color = (240, 180, 50, 255)   # amber
-        else:
-            color = (255, 255, 255, 255)  # white
+        color = (255, 255, 255, 255)  # white
     sym_w, sym_h, gap = 14, 36, 2
     # Shrink the font until number + symbol fit inside the icon.
     font_size = 36 if len(text) >= 3 else 52
