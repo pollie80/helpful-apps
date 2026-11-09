@@ -1,0 +1,16 @@
+{
+  "color": "4917FF",
+  "skip": ["Logitech", "G Pro", "PRO WIRELESS", "Lightspeed"],
+  "expected": {
+    "ENE DRAM": 2,
+    "RTX 4070": 1,
+    "MS-7E26": 1,
+    "Apex 3": 1
+  },
+  "devices": [
+    { "match": "MS-7E26", "mode": "Static", "zoneSizes": { "2": 60, "3": 60 } },
+    { "match": "DRAM", "mode": "Static" }
+  ],
+  "defaultMode": "Direct",
+  "waitMinutes": 2
+}

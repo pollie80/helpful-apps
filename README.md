@@ -11,6 +11,7 @@ One folder per platform, one folder per app inside it. Every app has its own REA
 | --- | --- |
 | [call-status](windows/call-status) | An always-on-top badge showing whether your mic or camera is live, so people can see when you are in a call. Detects device mute and Discord's in-app mute too. |
 | [ps4-controller-battery-tray](windows/ps4-controller-battery-tray) | The DualShock 4's battery percentage in the system tray, which Windows otherwise will not show you. Reads the pad directly over HID. |
+| [rgb-colour-once](windows/rgb-colour-once) | Sets all your RGB to one colour at logon through OpenRGB, then exits - a replacement for SignalRGB-style apps that re-send colours all day. |
 
 ## apple
 
